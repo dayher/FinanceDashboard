@@ -1,0 +1,21 @@
+{
+  "categories": {
+    "Nómina": [
+      {"type": "contains", "value": "NOMINA"}
+    ],
+    "Supermercado": [
+      {"type": "contains", "value": "EROSKI"},
+      {"type": "contains", "value": "MERCADONA"}
+    ],
+    "Ocio y Restauración": [
+      {"type": "contains", "value": "BAR"},
+      {"type": "contains", "value": "RESTAURANTE"}
+    ],
+    "Bizum Enviado": [
+      {"type": "starts_with", "value": "BIZUM A"}
+    ],
+    "Bizum Recibido": [
+      {"type": "starts_with", "value": "BIZUM DE"}
+    ]
+  }
+}
