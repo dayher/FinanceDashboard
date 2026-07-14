@@ -144,17 +144,18 @@ body {
 /* KPI Summary Cards Grid */
 .kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: 1.5rem;
     width: 100%;
 }
 
 .kpi-card {
     border-radius: var(--border-radius-lg);
-    padding: 1.5rem;
+    padding: 1.25rem 1.25rem 0.75rem 1.25rem;
     display: flex;
-    align-items: center;
-    gap: 1.2rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
     border: 1px solid var(--border-color);
     transition: var(--transition-smooth);
     position: relative;
@@ -194,9 +195,10 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
-    height: 48px;
+    width: 44px;
+    height: 44px;
     border-radius: 12px;
+    flex-shrink: 0;
 }
 
 .kpi-icon-wrapper.balance { background: rgba(59, 130, 246, 0.1); color: var(--accent-primary); }
@@ -204,10 +206,99 @@ body {
 .kpi-icon-wrapper.expense { background: rgba(239, 68, 68, 0.1); color: var(--accent-danger); }
 .kpi-icon-wrapper.savings { background: rgba(6, 182, 212, 0.1); color: var(--accent-info); }
 
+.kpi-card-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+}
+
+.kpi-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.kpi-settings-btn {
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: var(--transition-smooth);
+    opacity: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.kpi-card:hover .kpi-settings-btn {
+    opacity: 0.7;
+}
+
+.kpi-card .kpi-settings-btn:hover {
+    opacity: 1;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.light-mode .kpi-card .kpi-settings-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.kpi-chart-wrapper {
+    height: 60px;
+    width: 100%;
+    position: relative;
+    margin-top: 0.2rem;
+}
+
 .kpi-data {
     display: flex;
     flex-direction: column;
     flex-grow: 1;
+    width: calc(100% - 54px);
+}
+
+.modal-checkbox-list {
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 0.5rem;
+    background: var(--bg-input);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+}
+
+.modal-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    transition: var(--transition-smooth);
+}
+
+.modal-checkbox-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.light-mode .modal-checkbox-item:hover {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.modal-checkbox-item input[type="checkbox"] {
+    cursor: pointer;
+    width: 14px;
+    height: 14px;
 }
 
 .kpi-title {

@@ -1,3 +1,5 @@
+
+
 // State variables
 let rawTransactions = [];
 let transactions = [];
@@ -14,9 +16,14 @@ let sortColumn = 'fecha_operacion';
 let sortDirection = 'desc';
 
 // Charts references
-let chartBalance = null;
+let chartBalance = null; // Used for Category Evolution Chart
 let chartMonthly = null;
 let chartCategories = null;
+
+// KPI configuration state
+let kpiConfigs = [];
+let kpiCharts = [null, null, null, null];
+let activeConfiguringKpiIdx = null;
 
 // DOM Elements
 document.addEventListener('DOMContentLoaded', () => {
@@ -37,6 +44,19 @@ async function initApp() {
             rules = rulesData;
         } else {
             console.warn('Formato de reglas inválido o vacío. Usando por defecto.');
+        }
+
+        // Initialize KPI configs from rules or defaults
+        if (rules.kpis && rules.kpis.length === 4) {
+            kpiConfigs = rules.kpis;
+        } else {
+            kpiConfigs = [
+                { id: 0, title: "Saldo Final", type: "balance", categories: [] },
+                { id: 1, title: "Ingresos Totales", type: "income", categories: [] },
+                { id: 2, title: "Gastos Totales", type: "expense", categories: [] },
+                { id: 3, title: "Tasa de Ahorro", type: "savings", categories: [] }
+            ];
+            rules.kpis = kpiConfigs;
         }
 
         // Fetch transactions
@@ -106,10 +126,16 @@ function setupEventListeners() {
     // Rules Management Listeners
     document.getElementById('btn-add-category').addEventListener('click', addNewCategory);
     
-    // Modal Listeners
+    // Manual Override Modal Listeners
     document.getElementById('close-modal').addEventListener('click', closeModal);
     document.getElementById('btn-cancel-modal').addEventListener('click', closeModal);
     document.getElementById('btn-save-modal').addEventListener('click', saveManualOverride);
+
+    // KPI Config Modal Listeners
+    document.getElementById('close-kpi-modal').addEventListener('click', closeKpiModal);
+    document.getElementById('btn-cancel-kpi-modal').addEventListener('click', closeKpiModal);
+    document.getElementById('btn-save-kpi-modal').addEventListener('click', saveKpiConfig);
+    document.getElementById('kpi-modal-type').addEventListener('change', toggleKpiModalCategoriesGroup);
 }
 
 // Load manual overrides from localStorage
@@ -244,62 +270,373 @@ function updateUI() {
 
 // Calculate and render KPI Summary cards
 function calculateKPIs() {
-    let totalIncome = 0;
-    let totalExpense = 0;
-    
-    transactions.forEach(t => {
-        if (t.importe > 0) {
-            totalIncome += t.importe;
-        } else {
-            totalExpense += t.importe;
+    const kpiGrid = document.getElementById('kpi-grid-container');
+    if (!kpiGrid) return;
+    kpiGrid.innerHTML = '';
+
+    // Chronologically sort all transactions
+    const chronoTrans = [...transactions].reverse();
+
+    // Group transactions by month (YYYY-MM)
+    const monthlyGroups = {}; // key: "YYYY-MM", val: Array of transactions
+    chronoTrans.forEach(t => {
+        const parts = t.fecha_operacion.split('/');
+        if (parts.length === 3) {
+            const key = `${parts[2]}-${parts[1]}`; // YYYY-MM
+            if (!monthlyGroups[key]) monthlyGroups[key] = [];
+            monthlyGroups[key].push(t);
         }
     });
+    const sortedMonths = Object.keys(monthlyGroups).sort();
 
-    // Santander balances are descending, so transactions[0] is the latest chronological transaction.
-    // Let's verify by sorting and getting the latest date balance.
-    // If we parse dates:
-    let latestTransaction = transactions[0];
-    if (transactions.length > 0) {
-        let maxDateObj = new Date(0);
-        transactions.forEach(t => {
-            const [d, m, y] = t.fecha_operacion.split('/');
-            const dateObj = new Date(y, m - 1, d);
-            if (dateObj > maxDateObj) {
-                maxDateObj = dateObj;
-                latestTransaction = t;
+    // Map of SVGs for card icons
+    const svgs = {
+        balance: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="12" y1="10" x2="12" y2="10"></line><line x1="16" y1="10" x2="20" y2="10"></line><line x1="12" y1="14" x2="12" y2="14"></line><line x1="16" y1="14" x2="20" y2="14"></line><path d="M2 10h10v4H2z"></path></svg>`,
+        income: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>`,
+        expense: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>`,
+        savings: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>`,
+        custom: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`
+    };
+
+    // Fixed theme and icon class per card index to prevent colors changing when categories are edited
+    const cardThemes = [
+        { iconClass: 'balance', svg: svgs.balance },
+        { iconClass: 'income', svg: svgs.income },
+        { iconClass: 'expense', svg: svgs.expense },
+        { iconClass: 'savings', svg: svgs.savings }
+    ];
+
+    // Calculate details for each card
+    const kpiDetails = kpiConfigs.map((config, idx) => {
+        let value = 0;
+        let formattedValue = '';
+        let subtext = '';
+        const theme = cardThemes[idx] || cardThemes[0];
+        const iconClass = theme.iconClass;
+        const iconSvg = theme.svg;
+        let timeline = []; // Array of { x: Year-Month, y: monthlyTotal }
+
+        if (config.type === 'balance') {
+            // Saldo Final
+            let latestTransaction = transactions[0];
+            if (transactions.length > 0) {
+                let maxDateObj = new Date(0);
+                transactions.forEach(t => {
+                    const [d, m, y] = t.fecha_operacion.split('/');
+                    const dateObj = new Date(y, m - 1, d);
+                    if (dateObj > maxDateObj) {
+                        maxDateObj = dateObj;
+                        latestTransaction = t;
+                    }
+                });
+            }
+            value = latestTransaction ? latestTransaction.saldo : 0;
+            formattedValue = formatCurrency(value);
+            subtext = 'Último saldo registrado';
+
+            // Sparkline: End-of-month balances
+            sortedMonths.forEach(m => {
+                const monthTrans = monthlyGroups[m];
+                const lastTran = monthTrans[monthTrans.length - 1];
+                timeline.push({ x: m, y: lastTran.saldo });
+            });
+
+        } else if (config.type === 'income') {
+            // Ingresos Totales
+            let totalIncome = 0;
+            transactions.forEach(t => {
+                if (t.importe > 0) {
+                    totalIncome += t.importe;
+                }
+            });
+            value = totalIncome;
+            formattedValue = formatCurrency(value);
+            subtext = 'Total de abonos recibidos';
+
+            // Sparkline: Monthly income totals
+            sortedMonths.forEach(m => {
+                const monthTrans = monthlyGroups[m];
+                const sum = monthTrans.filter(t => t.importe > 0).reduce((acc, t) => acc + t.importe, 0);
+                timeline.push({ x: m, y: sum });
+            });
+
+        } else if (config.type === 'expense') {
+            // Gastos Totales
+            let totalExpense = 0;
+            transactions.forEach(t => {
+                if (t.importe < 0) {
+                    totalExpense += Math.abs(t.importe);
+                }
+            });
+            value = totalExpense;
+            formattedValue = formatCurrency(value);
+            subtext = 'Total de cargos realizados';
+
+            // Sparkline: Monthly expense totals
+            sortedMonths.forEach(m => {
+                const monthTrans = monthlyGroups[m];
+                const sum = monthTrans.filter(t => t.importe < 0).reduce((acc, t) => acc + Math.abs(t.importe), 0);
+                timeline.push({ x: m, y: sum });
+            });
+
+        } else if (config.type === 'savings') {
+            // Tasa de Ahorro
+            let totalIncome = 0;
+            let totalExpense = 0;
+            transactions.forEach(t => {
+                if (t.importe > 0) {
+                    totalIncome += t.importe;
+                } else {
+                    totalExpense += t.importe; // negative
+                }
+            });
+            const netSavings = totalIncome + totalExpense;
+            value = totalIncome > 0 ? (netSavings / totalIncome) * 100 : 0;
+            if (value < 0) value = 0;
+            formattedValue = `${value.toFixed(1)}%`;
+            subtext = 'Porcentaje de ingresos ahorrado';
+
+            // Sparkline: Monthly savings rate
+            sortedMonths.forEach(m => {
+                const monthTrans = monthlyGroups[m];
+                let inc = 0;
+                let exp = 0;
+                monthTrans.forEach(t => {
+                    if (t.importe > 0) {
+                        inc += t.importe;
+                    } else {
+                        exp += Math.abs(t.importe);
+                    }
+                });
+                const rate = inc > 0 ? Math.max(0, ((inc - exp) / inc * 100)) : 0;
+                timeline.push({ x: m, y: rate });
+            });
+
+        } else if (config.type === 'custom') {
+            // Custom category sum
+            const selectedCats = config.categories || [];
+            
+            // Auto-detect if this is primarily an expense or income
+            const netSum = transactions
+                .filter(t => selectedCats.includes(t.category))
+                .reduce((sum, t) => sum + t.importe, 0);
+
+            const isExpense = netSum < 0;
+
+            value = isExpense ? Math.abs(netSum) : netSum;
+            formattedValue = formatCurrency(value);
+            
+            const listStr = selectedCats.join(', ');
+            subtext = listStr.length > 30 ? listStr.substring(0, 30) + '...' : (listStr || 'Ninguna seleccionada');
+
+            // Sparkline: Monthly custom category totals
+            sortedMonths.forEach(m => {
+                const monthTrans = monthlyGroups[m];
+                const sum = monthTrans.filter(t => selectedCats.includes(t.category)).reduce((acc, t) => acc + t.importe, 0);
+                timeline.push({ x: m, y: isExpense ? Math.abs(sum) : sum });
+            });
+        }
+
+        return {
+            config,
+            value,
+            formattedValue,
+            subtext,
+            iconClass,
+            iconSvg,
+            timeline
+        };
+    });
+
+    // Render HTML cards
+    kpiGrid.innerHTML = '';
+    kpiDetails.forEach((detail, idx) => {
+        const cardHtml = `
+            <div class="kpi-card shadow-lg glass">
+                <div class="kpi-card-header">
+                    <div class="kpi-icon-wrapper ${detail.iconClass}">
+                        ${detail.iconSvg}
+                    </div>
+                    <div class="kpi-data">
+                        <div class="kpi-title-row">
+                            <span class="kpi-title">${detail.config.title}</span>
+                            <button class="kpi-settings-btn" onclick="openKpiModal(${idx})" title="Configurar marcador">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                            </button>
+                        </div>
+                        <h2 class="kpi-value ${detail.iconClass === 'income' ? 'text-success' : detail.iconClass === 'expense' ? 'text-danger' : detail.iconClass === 'savings' ? 'text-info' : ''}">${detail.formattedValue}</h2>
+                        <span class="kpi-sub" title="${detail.subtext}">${detail.subtext}</span>
+                    </div>
+                </div>
+                <div class="kpi-chart-wrapper">
+                    <canvas id="kpi-chart-${idx}"></canvas>
+                </div>
+            </div>
+        `;
+        kpiGrid.insertAdjacentHTML('beforeend', cardHtml);
+    });
+
+    // Draw sparklines
+    kpiDetails.forEach((detail, idx) => {
+        const ctx = document.getElementById(`kpi-chart-${idx}`).getContext('2d');
+        if (kpiCharts[idx]) kpiCharts[idx].destroy();
+
+        // Line color mappings
+        let lineColor = '#3b82f6';
+        let bgColor = 'rgba(59, 130, 246, 0.04)';
+        
+        if (detail.iconClass === 'income') {
+            lineColor = '#10b981';
+            bgColor = 'rgba(16, 185, 129, 0.04)';
+        } else if (detail.iconClass === 'expense') {
+            lineColor = '#ef4444';
+            bgColor = 'rgba(239, 68, 68, 0.04)';
+        } else if (detail.iconClass === 'savings') {
+            lineColor = '#06b6d4';
+            bgColor = 'rgba(6, 182, 212, 0.04)';
+        }
+
+        // Keep data density clean (max 50 points)
+        let sampled = detail.timeline;
+        if (sampled.length > 100) {
+            const step = Math.ceil(sampled.length / 50);
+            sampled = [];
+            for (let i = 0; i < detail.timeline.length; i += step) {
+                sampled.push(detail.timeline[i]);
+            }
+            if ((detail.timeline.length - 1) % step !== 0) {
+                sampled.push(detail.timeline[detail.timeline.length - 1]);
+            }
+        }
+
+        kpiCharts[idx] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: sampled.map(pt => pt.x),
+                datasets: [{
+                    data: sampled.map(pt => pt.y),
+                    borderColor: lineColor,
+                    backgroundColor: bgColor,
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    fill: true,
+                    tension: 0.2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        enabled: true,
+                        callbacks: {
+                            title: function(context) {
+                                const ym = context[0].label;
+                                const parts = ym.split('-');
+                                if (parts.length === 2) {
+                                    const [year, month] = parts;
+                                    const dateObj = new Date(year, parseInt(month) - 1, 1);
+                                    const label = dateObj.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+                                    return label.charAt(0).toUpperCase() + label.slice(1);
+                                }
+                                return ym;
+                            },
+                            label: function(context) {
+                                if (detail.config.type === 'savings') {
+                                    return `Tasa: ${context.parsed.y.toFixed(1)}%`;
+                                }
+                                return `Monto: ${formatCurrency(context.parsed.y)}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { display: false },
+                    y: { display: false }
+                }
             }
         });
-    }
-
-    const currentBalance = latestTransaction ? latestTransaction.saldo : 0;
-    
-    // Savings calculation
-    const netSavings = totalIncome + totalExpense; // totalExpense is negative
-    let savingsRate = 0;
-    if (totalIncome > 0) {
-        savingsRate = (netSavings / totalIncome) * 100;
-    }
-    if (savingsRate < 0) savingsRate = 0; // limit visual rate
-
-    // Update HTML
-    document.getElementById('kpi-balance').textContent = formatCurrency(currentBalance);
-    document.getElementById('kpi-income').textContent = formatCurrency(totalIncome);
-    document.getElementById('kpi-expense').textContent = formatCurrency(Math.abs(totalExpense));
-    document.getElementById('kpi-savings').textContent = `${savingsRate.toFixed(1)}%`;
-    
-    // Animate progress bar
-    document.getElementById('kpi-savings-progress').style.width = `${Math.min(savingsRate, 100)}%`;
-    
-    // Change savings rate progress color based on value
-    const progressEl = document.getElementById('kpi-savings-progress');
-    if (savingsRate >= 30) {
-        progressEl.style.backgroundColor = 'var(--accent-success)';
-    } else if (savingsRate >= 10) {
-        progressEl.style.backgroundColor = 'var(--accent-info)';
-    } else {
-        progressEl.style.backgroundColor = 'var(--accent-warning)';
-    }
+    });
 }
+
+// KPI modal helper functions
+window.openKpiModal = function(idx) {
+    activeConfiguringKpiIdx = idx;
+    const config = kpiConfigs[idx];
+
+    document.getElementById('kpi-modal-title').value = config.title;
+    const selectType = document.getElementById('kpi-modal-type');
+    selectType.value = config.type;
+
+    // Render checkbox list of active categories
+    const container = document.getElementById('kpi-modal-categories-list');
+    container.innerHTML = '';
+
+    const categoriesList = Object.keys(rules.categories).sort();
+    categoriesList.forEach(catName => {
+        const item = document.createElement('label');
+        item.className = 'modal-checkbox-item';
+        
+        const isChecked = config.categories && config.categories.includes(catName);
+        item.innerHTML = `
+            <input type="checkbox" value="${catName}" ${isChecked ? 'checked' : ''}>
+            <span>${catName}</span>
+        `;
+        container.appendChild(item);
+    });
+
+    toggleKpiModalCategoriesGroup();
+    document.getElementById('kpi-config-modal').classList.add('active');
+};
+
+window.closeKpiModal = function() {
+    document.getElementById('kpi-config-modal').classList.remove('active');
+    activeConfiguringKpiIdx = null;
+};
+
+window.saveKpiConfig = function() {
+    if (activeConfiguringKpiIdx === null) return;
+
+    const title = document.getElementById('kpi-modal-title').value.trim() || 'Marcador';
+    const type = document.getElementById('kpi-modal-type').value;
+    
+    let selectedCats = [];
+    if (type === 'custom') {
+        document.querySelectorAll('#kpi-modal-categories-list input[type="checkbox"]:checked').forEach(cb => {
+            selectedCats.push(cb.value);
+        });
+        if (selectedCats.length === 0) {
+            alert('Por favor, selecciona al menos una categoría.');
+            return;
+        }
+    }
+
+    kpiConfigs[activeConfiguringKpiIdx] = {
+        id: activeConfiguringKpiIdx,
+        title: title,
+        type: type,
+        categories: selectedCats
+    };
+
+    // Link back to rules to save
+    rules.kpis = kpiConfigs;
+
+    updateUI();
+    markRulesModified();
+    closeKpiModal();
+};
+
+window.toggleKpiModalCategoriesGroup = function() {
+    const type = document.getElementById('kpi-modal-type').value;
+    const group = document.getElementById('kpi-modal-categories-group');
+    if (type === 'custom') {
+        group.style.display = 'block';
+    } else {
+        group.style.display = 'none';
+    }
+};
 
 // Switch between tabs
 function switchTab(tabId) {
@@ -807,58 +1144,127 @@ function renderCharts() {
 
     // Chronologically sort all transactions for the timeline
     // The raw data from server is reverse chronological (newest first). Let's copy and reverse.
-    const chronologicalData = [...transactions].reverse();
+    const chronoTrans = [...transactions].reverse();
 
-    // 1. Balance Evolution Chart (Line Chart)
+    // 1. Category Evolution Chart (Line Chart)
     const ctxBalance = document.getElementById('chart-balance').getContext('2d');
     if (chartBalance) chartBalance.destroy();
 
-    const balanceLabels = chronologicalData.map(t => t.fecha_operacion);
-    const balanceValues = chronologicalData.map(t => t.saldo);
+    // Grouping by Year-Month and Category
+    const categoryMonthlyGroups = {}; // key: "YYYY-MM", val: { cat1: amount, cat2: amount, ... }
+    const monthsSet = new Set();
 
-    // Keep data density readable - sample if we have too many items (e.g. max 100 points)
-    let sampledLabels = balanceLabels;
-    let sampledValues = balanceValues;
-    if (chronologicalData.length > 150) {
-        const step = Math.ceil(chronologicalData.length / 100);
-        sampledLabels = [];
-        sampledValues = [];
-        for (let i = 0; i < chronologicalData.length; i += step) {
-            sampledLabels.push(chronologicalData[i].fecha_operacion);
-            sampledValues.push(chronologicalData[i].saldo);
+    chronoTrans.forEach(t => {
+        const parts = t.fecha_operacion.split('/');
+        if (parts.length === 3) {
+            const key = `${parts[2]}-${parts[1]}`; // YYYY-MM
+            monthsSet.add(key);
+            if (!categoryMonthlyGroups[key]) {
+                categoryMonthlyGroups[key] = {};
+            }
+            const cat = t.category;
+            // Sum of absolute values to show spending volume
+            const amt = Math.abs(t.importe);
+            categoryMonthlyGroups[key][cat] = (categoryMonthlyGroups[key][cat] || 0) + amt;
         }
-        // Always add the last point to show final balance
-        if (chronologicalData.length - 1 % step !== 0) {
-            sampledLabels.push(chronologicalData[chronologicalData.length - 1].fecha_operacion);
-            sampledValues.push(chronologicalData[chronologicalData.length - 1].saldo);
-        }
+    });
+
+    const sortedMonths = Array.from(monthsSet).sort();
+    const allCategories = Array.from(new Set(transactions.map(t => t.category)));
+
+    // Calculate total volume per category to sort them
+    const categoryTotalVolume = {};
+    allCategories.forEach(cat => {
+        categoryTotalVolume[cat] = transactions
+            .filter(t => t.category === cat)
+            .reduce((sum, t) => sum + Math.abs(t.importe), 0);
+    });
+
+    const sortedCategoriesByVolume = allCategories.sort((a, b) => categoryTotalVolume[b] - categoryTotalVolume[a]);
+
+    // Beautiful palette corresponding to category badge styles
+    const categoryColors = {
+        'Nómina': '#10b981',
+        'Supermercado': '#f59e0b',
+        'Ocio y Restauración': '#8b5cf6',
+        'Bizum Enviado': '#ef4444',
+        'Bizum Recibido': '#06b6d4',
+        'Inversiones': '#3b82f6',
+        'Suscripciones y Formación': '#7c68e3',
+        'Compras': '#ec4899',
+        'Efectivo': '#a1a1aa',
+        'Deportes': '#a3e635',
+        'Sin categoría': '#4b5563'
+    };
+
+    function hexToRgba(hex, alpha) {
+        if (!hex || !hex.startsWith('#')) return hex;
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
+
+    function getColorForIndex(idx) {
+        const colors = [
+            '#3b82f6', '#10b981', '#ef4444', '#f59e0b', '#06b6d4', 
+            '#8b5cf6', '#ec4899', '#a1a1aa', '#a3e635', '#f43f5e'
+        ];
+        return colors[idx % colors.length];
+    }
+
+    const datasets = sortedCategoriesByVolume.map((cat, catIdx) => {
+        const data = sortedMonths.map(ym => {
+            return categoryMonthlyGroups[ym][cat] || 0;
+        });
+
+        const color = categoryColors[cat] || getColorForIndex(catIdx);
+
+        return {
+            label: cat,
+            data: data,
+            borderColor: color,
+            backgroundColor: hexToRgba(color, 0.05),
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            fill: false,
+            tension: 0.2,
+            hidden: catIdx >= 5 // Hide categories beyond the top 5 by default
+        };
+    });
+
+    const balanceLabels = sortedMonths.map(ym => {
+        const [year, month] = ym.split('-');
+        const dateObj = new Date(year, parseInt(month) - 1, 1);
+        const label = dateObj.toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
+        return label.charAt(0).toUpperCase() + label.slice(1);
+    });
 
     chartBalance = new Chart(ctxBalance, {
         type: 'line',
         data: {
-            labels: sampledLabels,
-            datasets: [{
-                label: 'Saldo de Cuenta (€)',
-                data: sampledValues,
-                borderColor: '#3b82f6',
-                backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                borderWidth: 2.5,
-                pointRadius: sampledValues.length > 50 ? 0 : 3,
-                pointHoverRadius: 6,
-                fill: true,
-                tension: 0.1
-            }]
+            labels: balanceLabels,
+            datasets: datasets
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { display: false },
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        color: textColor,
+                        boxWidth: 12,
+                        padding: 15,
+                        font: { size: 11 }
+                    }
+                },
                 tooltip: {
                     callbacks: {
                         label: function(context) {
-                            return `Saldo: ${formatCurrency(context.parsed.y)}`;
+                            return ` ${context.dataset.label}: ${formatCurrency(context.parsed.y)}`;
                         }
                     }
                 }
@@ -866,10 +1272,7 @@ function renderCharts() {
             scales: {
                 x: {
                     grid: { display: false },
-                    ticks: {
-                        color: textColor,
-                        maxTicksLimit: 12
-                    }
+                    ticks: { color: textColor }
                 },
                 y: {
                     grid: { color: gridColor },
@@ -989,21 +1392,6 @@ function renderCharts() {
     const sortedCats = Object.keys(catExpenses).sort((a, b) => catExpenses[b] - catExpenses[a]);
     const catLabels = sortedCats;
     const catValues = sortedCats.map(cat => catExpenses[cat]);
-
-    // Beautiful palette corresponding to category badge styles
-    const categoryColors = {
-        'Nómina': '#10b981',
-        'Supermercado': '#f59e0b',
-        'Ocio y Restauración': '#8b5cf6',
-        'Bizum Enviado': '#ef4444',
-        'Bizum Recibido': '#06b6d4',
-        'Inversiones': '#3b82f6',
-        'Suscripciones y Formación': '#7c68e3',
-        'Compras': '#ec4899',
-        'Efectivo': '#a1a1aa',
-        'Deportes': '#a3e635',
-        'Sin categoría': '#4b5563'
-    };
 
     const doughnutColors = catLabels.map(cat => categoryColors[cat] || '#6b7280');
 

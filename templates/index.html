@@ -44,52 +44,8 @@
         </header>
 
         <!-- KPI Summary Cards -->
-        <section class="kpi-grid">
-            <div class="kpi-card shadow-lg glass">
-                <div class="kpi-icon-wrapper balance">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="12" y1="10" x2="12" y2="10"></line><line x1="16" y1="10" x2="20" y2="10"></line><line x1="12" y1="14" x2="12" y2="14"></line><line x1="16" y1="14" x2="20" y2="14"></line><path d="M2 10h10v4H2z"></path></svg>
-                </div>
-                <div class="kpi-data">
-                    <span class="kpi-title">Saldo Final</span>
-                    <h2 id="kpi-balance" class="kpi-value">0,00 €</h2>
-                    <span class="kpi-sub" id="kpi-balance-period">Última operación registrada</span>
-                </div>
-            </div>
-            
-            <div class="kpi-card shadow-lg glass">
-                <div class="kpi-icon-wrapper income">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
-                </div>
-                <div class="kpi-data">
-                    <span class="kpi-title">Ingresos Totales</span>
-                    <h2 id="kpi-income" class="kpi-value text-success">0,00 €</h2>
-                    <span class="kpi-sub" id="kpi-income-sub">Suma de abonos</span>
-                </div>
-            </div>
-
-            <div class="kpi-card shadow-lg glass">
-                <div class="kpi-icon-wrapper expense">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
-                </div>
-                <div class="kpi-data">
-                    <span class="kpi-title">Gastos Totales</span>
-                    <h2 id="kpi-expense" class="kpi-value text-danger">0,00 €</h2>
-                    <span class="kpi-sub" id="kpi-expense-sub">Suma de cargos</span>
-                </div>
-            </div>
-
-            <div class="kpi-card shadow-lg glass">
-                <div class="kpi-icon-wrapper savings">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
-                </div>
-                <div class="kpi-data">
-                    <span class="kpi-title">Tasa de Ahorro</span>
-                    <h2 id="kpi-savings" class="kpi-value text-info">0,0%</h2>
-                    <div class="kpi-progress-bar">
-                        <div id="kpi-savings-progress" class="progress-fill" style="width: 0%"></div>
-                    </div>
-                </div>
-            </div>
+        <section class="kpi-grid" id="kpi-grid-container">
+            <!-- Loaded dynamically via JS -->
         </section>
 
         <!-- Navigation Tabs -->
@@ -116,8 +72,8 @@
                     <!-- Historical Balance Line Chart -->
                     <div class="chart-container card glass full-width">
                         <div class="chart-header">
-                            <h3>Evolución del Saldo</h3>
-                            <span class="text-muted">Desarrollo a lo largo del tiempo</span>
+                            <h3 id="main-chart-title">Evolución de Categorías</h3>
+                            <span class="text-muted" id="main-chart-subtitle">Desarrollo mensual de flujo por categoría a lo largo del tiempo</span>
                         </div>
                         <div class="chart-wrapper">
                             <canvas id="chart-balance"></canvas>
@@ -270,6 +226,42 @@
             <div class="modal-footer">
                 <button id="btn-cancel-modal" class="btn btn-secondary">Cancelar</button>
                 <button id="btn-save-modal" class="btn btn-primary">Aplicar Cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPI Configuration Modal -->
+    <div id="kpi-config-modal" class="modal">
+        <div class="modal-content glass shadow-lg">
+            <div class="modal-header">
+                <h3>Configurar Marcador</h3>
+                <span class="close-btn" id="close-kpi-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="kpi-modal-title">Título del Indicador:</label>
+                    <input type="text" id="kpi-modal-title" placeholder="Ej. Gastos de Supermercado">
+                </div>
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label for="kpi-modal-type">Tipo de Marcador:</label>
+                    <select id="kpi-modal-type">
+                        <option value="balance">Saldo Final de Cuenta (Especial)</option>
+                        <option value="income">Ingresos Totales (Especial)</option>
+                        <option value="expense">Gastos Totales (Especial)</option>
+                        <option value="savings">Tasa de Ahorro (Especial)</option>
+                        <option value="custom">Suma de Categorías Personalizadas</option>
+                    </select>
+                </div>
+                <div class="form-group" id="kpi-modal-categories-group" style="margin-top: 1rem; display: none;">
+                    <label>Selecciona las Categorías a Sumar:</label>
+                    <div class="modal-checkbox-list" id="kpi-modal-categories-list">
+                        <!-- Dynamic category list with checkboxes -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-cancel-kpi-modal" class="btn btn-secondary">Cancelar</button>
+                <button id="btn-save-kpi-modal" class="btn btn-primary">Guardar Configuración</button>
             </div>
         </div>
     </div>
