@@ -104,14 +104,14 @@ function setupEventListeners() {
     document.getElementById('btn-prev-page').addEventListener('click', () => {
         if (currentPage > 1) {
             currentPage--;
-            renderTablePage();
+            filterAndRenderTable();
         }
     });
     document.getElementById('btn-next-page').addEventListener('click', () => {
         const totalPages = Math.ceil(getFilteredTransactions().length / rowsPerPage);
         if (currentPage < totalPages) {
             currentPage++;
-            renderTablePage();
+            filterAndRenderTable();
         }
     });
 
@@ -1150,6 +1150,13 @@ function renderCharts() {
     const ctxBalance = document.getElementById('chart-balance').getContext('2d');
     if (chartBalance) chartBalance.destroy();
 
+    // First calculate overall net sum for each category to determine if it is primarily an expense
+    const categoryTotalNet = {};
+    transactions.forEach(t => {
+        const cat = t.category;
+        categoryTotalNet[cat] = (categoryTotalNet[cat] || 0) + t.importe;
+    });
+
     // Grouping by Year-Month and Category
     const categoryMonthlyGroups = {}; // key: "YYYY-MM", val: { cat1: amount, cat2: amount, ... }
     const monthsSet = new Set();
@@ -1163,21 +1170,17 @@ function renderCharts() {
                 categoryMonthlyGroups[key] = {};
             }
             const cat = t.category;
-            // Sum of absolute values to show spending volume
-            const amt = Math.abs(t.importe);
-            categoryMonthlyGroups[key][cat] = (categoryMonthlyGroups[key][cat] || 0) + amt;
+            categoryMonthlyGroups[key][cat] = (categoryMonthlyGroups[key][cat] || 0) + t.importe;
         }
     });
 
     const sortedMonths = Array.from(monthsSet).sort();
     const allCategories = Array.from(new Set(transactions.map(t => t.category)));
 
-    // Calculate total volume per category to sort them
+    // Calculate total volume per category to sort them (absolute of net sum)
     const categoryTotalVolume = {};
     allCategories.forEach(cat => {
-        categoryTotalVolume[cat] = transactions
-            .filter(t => t.category === cat)
-            .reduce((sum, t) => sum + Math.abs(t.importe), 0);
+        categoryTotalVolume[cat] = Math.abs(categoryTotalNet[cat] || 0);
     });
 
     const sortedCategoriesByVolume = allCategories.sort((a, b) => categoryTotalVolume[b] - categoryTotalVolume[a]);
@@ -1214,8 +1217,10 @@ function renderCharts() {
     }
 
     const datasets = sortedCategoriesByVolume.map((cat, catIdx) => {
+        const isExpense = (categoryTotalNet[cat] || 0) < 0;
         const data = sortedMonths.map(ym => {
-            return categoryMonthlyGroups[ym][cat] || 0;
+            const val = categoryMonthlyGroups[ym][cat] || 0;
+            return isExpense ? Math.abs(val) : val;
         });
 
         const color = categoryColors[cat] || getColorForIndex(catIdx);
@@ -1376,15 +1381,17 @@ function renderCharts() {
     const ctxCategories = document.getElementById('chart-categories').getContext('2d');
     if (chartCategories) chartCategories.destroy();
 
-    // Group expense sums by category
-    const catExpenses = {};
+    // Group net expense sums by category
+    const catNetSums = {};
     transactions.forEach(t => {
-        if (t.importe < 0) {
-            // Usually we filter out investments from normal consumption categories,
-            // but let's include all negative transactions and display them.
-            const cat = t.category;
-            const amt = Math.abs(t.importe);
-            catExpenses[cat] = (catExpenses[cat] || 0) + amt;
+        const cat = t.category;
+        catNetSums[cat] = (catNetSums[cat] || 0) + t.importe;
+    });
+
+    const catExpenses = {};
+    Object.keys(catNetSums).forEach(cat => {
+        if (catNetSums[cat] < 0) {
+            catExpenses[cat] = Math.abs(catNetSums[cat]);
         }
     });
 
